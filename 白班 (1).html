@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SICU 智慧護理紀錄站 v3.0</title>
+    <style>
+        /* --- 全局變數 --- */
+        :root {
+            --primary: #2c3e50;
+            --accent: #3498db;
+            --urgent-bg: #fff5f5;
+            --urgent-border: #e74c3c;
+            --sidebar-width: 320px;
+            --modal-overlay: rgba(0, 0, 0, 0.6);
+        }
+
+        body {
+            font-family: "Microsoft JhengHei", -apple-system, sans-serif;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-color: #f1f2f6;
+            overflow: hidden;
+        }
+
+        /* --- Header --- */
+        header {
+            background: var(--primary);
+            color: white;
+            padding: 0 20px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            z-index: 100;
+        }
+
+        .header-title { font-size: 1.2rem; font-weight: bold; }
+        .menu-btn {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid white;
+            color: white;
+            padding: 6px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: 0.3s;
+            font-size: 0.9rem;
+        }
+        .menu-btn:hover { background: rgba(255,255,255,0.4); }
+
+        /* --- 主版面 (2/3 vs 1/3) --- */
+        .main-container {
+            display: flex;
+            flex: 1;
+            padding: 15px;
+            gap: 15px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .panel {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-routine { flex: 2; border-top: 5px solid var(--accent); }
+        .panel-urgent { flex: 1; border-top: 5px solid var(--urgent-border); background: var(--urgent-bg); }
+
+        .panel-header {
+            padding: 12px 15px;
+            font-weight: bold;
+            border-bottom: 1px solid #eee;
+            background: rgba(255,255,255,0.8);
+            backdrop-filter: blur(5px);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .task-list { flex: 1; overflow-y: auto; padding: 10px; }
+
+        /* --- 任務卡片 --- */
+        .task-card {
+            background: white;
+            border: 1px solid #e1e1e1;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            position: relative;
+            transition: all 0.2s;
+        }
+        .task-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+
+        .task-header { display: flex; align-items: center; padding: 10px; cursor: pointer; }
+        .task-checkbox { width: 20px; height: 20px; margin-right: 12px; cursor: pointer; z-index: 2; }
+        .time-badge { background: #dfe6e9; color: #636e72; padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; margin-right: 10px; font-weight: bold; }
+        .task-title { font-weight: 500; flex: 1; }
+        .expand-hint { font-size: 0.8rem; color: #b2bec3; }
+
+        .task-body { display: none; padding: 0 10px 10px 42px; border-top: 1px dashed #eee; }
+        .task-body.open { display: block; }
+
+        textarea.record-input {
+            width: 95%; min-height: 80px; padding: 8px;
+            border: 1px solid #ddd; border-radius: 4px;
+            font-size: 0.9rem; font-family: monospace;
+            resize: vertical; background: #fafafa;
+        }
+
+        /* --- 側欄 (Sidebar) --- */
+        .sidebar {
+            position: absolute; top: 0; left: -340px;
+            width: var(--sidebar-width); height: 100%;
+            background: #2d3436; color: #dfe6e9;
+            z-index: 200; transition: left 0.3s ease;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+            display: flex; flex-direction: column;
+        }
+        .sidebar.active { left: 0; }
+
+        .sidebar-header {
+            padding: 10px; background: #000;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .sidebar-tabs { display: flex; background: #353b48; }
+        .tab-btn {
+            flex: 1; padding: 10px; border: none; background: transparent;
+            color: #b2bec3; cursor: pointer; font-weight: bold;
+            border-bottom: 3px solid transparent;
+        }
+        .tab-btn.active { color: white; border-bottom-color: var(--accent); background: #2d3436; }
+        
+        .sidebar-content { flex: 1; overflow-y: auto; padding: 15px; display: none; }
+        .sidebar-content.active { display: block; }
+
+        /* 已完成項目樣式 */
+        .completed-item {
+            background: #636e72; margin-bottom: 10px; padding: 10px;
+            border-radius: 4px; font-size: 0.9rem; border-left: 3px solid #00b894;
+        }
+        .completed-time { color: #fab1a0; font-size: 0.8rem; margin-bottom: 5px; }
+        .completed-note { 
+            background: rgba(0,0,0,0.2); padding: 5px; border-radius: 3px; 
+            margin-top: 5px; white-space: pre-wrap; font-family: monospace; 
+        }
+
+        /* SOP 列表樣式 */
+        .sop-item {
+            background: white; color: #2d3436; margin-bottom: 8px; padding: 12px;
+            border-radius: 4px; cursor: pointer; font-weight: bold;
+            display: flex; justify-content: space-between; align-items: center;
+            transition: 0.2s;
+        }
+        .sop-item:hover { background: var(--accent); color: white; }
+        .sop-arrow { font-size: 1.2rem; }
+
+        /* --- 彈跳視窗 (Modal) --- */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--modal-overlay); z-index: 1000;
+            display: none; justify-content: center; align-items: center;
+        }
+        .modal-overlay.active { display: flex; }
+
+        .modal-content {
+            background: white; width: 90%; max-width: 600px; max-height: 85vh;
+            border-radius: 8px; overflow-y: auto; position: relative;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5); display: flex; flex-direction: column;
+        }
+        .modal-header {
+            background: var(--primary); color: white; padding: 15px;
+            font-size: 1.2rem; font-weight: bold;
+            display: flex; justify-content: space-between; align-items: center;
+            position: sticky; top: 0;
+        }
+        .modal-body { padding: 20px; line-height: 1.6; color: #333; }
+        
+        .modal-section { margin-bottom: 20px; }
+        .modal-section h3 { 
+            border-left: 5px solid var(--urgent-border); padding-left: 10px; 
+            color: var(--primary); margin-bottom: 10px; 
+        }
+        .modal-list { padding-left: 20px; margin: 0; }
+        .modal-list li { margin-bottom: 5px; }
+        
+        .close-modal-btn { background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer; }
+
+        /* --- 底部輸入區 --- */
+        .footer-input {
+            background: white; padding: 15px; border-top: 1px solid #ccc;
+            display: flex; gap: 10px; align-items: center;
+        }
+        /* 改為文字輸入 */
+        input.time-input { 
+            width: 80px; padding: 10px; border: 1px solid #ccc; 
+            border-radius: 4px; text-align: center; font-family: monospace;
+        }
+        input.text-input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        
+        .btn-add {
+            background: var(--urgent-border); color: white; border: none;
+            padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold;
+        }
+        .btn-add:hover { background: #c0392b; }
+
+        /* RWD */
+        @media (max-width: 768px) {
+            .main-container { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="modal-overlay" id="sopModal" onclick="closeModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span id="modalTitle">任務標題</span>
+            <button class="close-modal-btn" onclick="closeModal()">×</button>
+        </div>
+        <div class="modal-body" id="modalBody">
+            </div>
+    </div>
+</div>
+
+<div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <span>選單 / 歷史紀錄</span>
+        <button class="menu-btn" onclick="toggleSidebar()">✕ 關閉</button>
+    </div>
+    
+    <div class="sidebar-tabs">
+        <button class="tab-btn active" onclick="switchTab('completed')">✅ 已完成</button>
+        <button class="tab-btn" onclick="switchTab('sop')">📖 常見任務</button>
+    </div>
+
+    <div id="tab-completed" class="sidebar-content active">
+        <div id="completedList"></div>
+    </div>
+
+    <div id="tab-sop" class="sidebar-content">
+        <div id="sopList"></div>
+    </div>
+</div>
+
+<header>
+    <button class="menu-btn" onclick="toggleSidebar()">☰ 選單 & 紀錄</button>
+    <div class="header-title">SICU 白班護理紀錄</div>
+    <div style="width: 80px;"></div> 
+</header>
+
+<div class="main-container">
+    <div class="panel panel-routine">
+        <div class="panel-header">📋 常規流程 (點擊文字展開紀錄)</div>
+        <div class="task-list" id="routineList"></div>
+    </div>
+
+    <div class="panel panel-urgent">
+        <div class="panel-header">🚨 緊急待辦 / 醫囑</div>
+        <div class="task-list" id="urgentList"></div>
+    </div>
+</div>
+
+<div class="footer-input">
+    <input type="text" id="inputTime" class="time-input" placeholder="時間" maxlength="5">
+    <input type="text" id="inputText" class="text-input" placeholder="輸入臨時醫囑或任務 (Enter 送出)..." onkeypress="handleEnter(event)">
+    <button class="btn-add" onclick="addTask()">新增</button>
+</div>
+
+<script>
+    // --- 1. 資料庫：SOP 常見任務 ---
+    // 您可以在此處擴充更多任務
+    const sopData = {
+    "on_cvcorD/L": {
+        title: "On CVC (中心靜脈導管)或D/L(雙腔靜脈導管)",
+        items: ["CVC or D/L", "CVC車", "底座或3.0 Nylon", "CVC包/洞巾/大單 ", "lidocaine(找L2拿鑰匙)", "無菌手套 (醫師尺寸)、髮帽、無菌衣", "10ml空針n枝、水n罐", "粉紅色2% ", "4x4紗布十片裝", "CHG固定貼/Y紗+10片裝/大OPsite"],
+        steps: ["協助病人擺位", "開CVC包", "倒2%、水、給針、棉枝", "醫師消毒鋪單", "協助醫師穿衣、戴手套", "置放CVC", "確認每頭是否都回血 -> 固定位置確認", "接上點滴管路", "安排 CXR 確認位置", "收換消及"],
+        notes: "注意是否發生氣胸徵象 (SpO2 下降、呼吸急促)。\n導管深度需記錄 (CVC全入20cm)。"
+    },
+    "newpatient": {
+        title: "接病人-function",
+        items: ["備BED SIDE：\n小倉：\n走廊：\n空瓶裝水\n約束", "A-Line Set (20G/22G)", "無菌手套", "固定板 + 宜拉膠", "加壓袋 (Pressure Bag)", "Transducer Set", "Lidocaine"],
+        steps: ["Allen's Test 測試循環"],
+        notes: "注意波形 (Waveform) 是否漂亮。\n末梢循環觀察 (5P)。"
+    },
+    "admit_patient_primary": {
+        title: "接病人-主護",
+        items: [
+            "同意書：MR-同09_病人身體約束暨隔離照護同意書",
+            "同意書：MR-同07_病人住入或轉入加護病房同意書",
+            "同意書：MR-同91(住)_自願付費同意書(寶馬生104、洗澡水180)",
+            "床頭卡、過敏卡、手圈(跌倒貼紙)",
+            "平板、加護病房入住單張",
+            "推床：備monitor導線、O2兩桶>500、Ambu、Stand、pump"
+        ],
+        steps: [
+            "TED-ICU 控床系統確認病歷號，了解ENDO、A-line、CVP",
+            "打#2036叫貼紙5張、並key 傳送至B1病歷室領取(晚上改急診櫃台#2118)",
+            "EKG轉出原病患(按儲存資訊)，並註冊病患(三格皆key病歷號)",
+            "確認轉床(非白班找值班書記，其餘找急診櫃台)，報病歷號及VS",
+            "建立同意書，從行政網路點開單系統，先看文件列表有建了什麼，再建必備四份，有MR-08_病人病危通知單要key醫生碼，並點到只剩家屬簽名",
+            "推床至手術室或血管攝影室(備monitor導線、O2兩桶>500、Ambu、Stand、pump)",
+            "手術病人先開桌面手術報告系統，以病歷號查詢(確定日期)，點左下角預覽表單，看手術紀錄(手術名稱及OP finding)、手術護理紀錄(看植入物、管路)、I/O(從輔助查詢系統的麻醉臨床查詢找)",
+            "先寫白板-管路跟帳密",
+            "病人來以後，先對管路，親自看傷口",
+            "麻醉科交班：I/O、藥物",
+            "手術室交班：手術過程、病理檢體",
+            "打電話請病房下來交班",
+            "對order及確認內容(管路care、藥物、洗澡水日期、病人狀態)"
+        ],
+        notes: "急診來的病人：急診、病房 path OR\npath OR的要Q15*4、Q30*2\n\n護理紀錄：\n打轉摘、檢查電腦、家屬內容、整病歷(EKG、編號單張)、藥物衛教、計價、洗傷口照片。"
+    },
+    "send_CT": {
+        title: "送 CT檢查",
+        items: ["傳送型呼吸器 (Transport Vent)", "氧氣鋼瓶 (確認壓力)", "急救藥物盒", "監視器 (Monitor)", "Ambu bag + Mask"],
+        steps: ["聯絡 CT 室確認", "整理管路 (防脫落)", "確認生命徵象穩定", "醫師/RT 陪同", "檢查中監測 V/S", "返室後重新歸零/校正"],
+        notes: "若有打顯影劑，注意過敏反應及腎功能。\n檢查前確認管路長度是否足夠移動。"
+    },
+    "send_MRI": {
+        title: "送 MRI檢查",
+        items: ["傳送型呼吸器 (Transport Vent)", "氧氣鋼瓶 (確認壓力)", "急救藥物盒", "監視器 (Monitor)", "Ambu bag + Mask"],
+        steps: ["聯絡 CT 室確認", "整理管路 (防脫落)", "確認生命徵象穩定", "醫師/RT 陪同", "檢查中監測 V/S", "返室後重新歸零/校正"],
+        notes: "若有打顯影劑，注意過敏反應及腎功能。\n檢查前確認管路長度是否足夠移動。"
+    },
+    "transfer_patient": {
+        title: "轉送病人",
+        items: ["血瓶 (嗜氧+厭氧)", "空針 x2 或 採血針", "酒精棉片", "優碘/Chlorhexidine", "無菌手套"],
+        steps: ["徹底消毒皮膚 (至少 30秒)", "待乾", "穿刺抽血 (勿摸穿刺點)", "更換針頭注入血瓶 (先厭氧 -> 後嗜氧)", "標示部位與時間"],
+        notes: "不同部位需間隔消毒。\n避免從有點滴之肢體抽血。"
+    },
+    "send_to_surgery": {
+        title: "送刀任務",
+        items: ["病歷及檢查報告", "氧氣鋼瓶", "傳送監視器"],
+        steps: ["確認手術同意書", "核對病人身分", "管路固定", "聯絡傳送人員"],
+        notes: "注意術前給藥時間。"
+    }
+};
+    const routineData = [
+        { time: "08:30", text: "與大夜翻身 (右側臥)", template: "協助病人翻身及抽痰，與大夜班核對管路位置及公分數，位置正確，協助執行床上沐浴並執行尿管清潔及使用2%消毒液進行尿管消毒，協助更換乾淨尿布、布中單及床單，抬高床頭30度，雙側床欄拉起，現採右側臥。" },
+        { time: "08:45", text: "三班班次摘要-身體評估", template: "意識程度E_V_M_，瞳孔大小/對光反射：左眼_mm/(＋；－；±)、右眼_mm/(＋；－；±)，肌力強度：左手_分、右手_分、左腳_分、右腳_分，重症疼痛評估(CPOT)評估為_分，呼吸平順無費力之情形，無使用呼吸輔助肌，胸部起伏對稱，聽診呼吸音為雙側_音，身上管路:__號氣管內管固定於__公分（__號氣切管），接呼吸器採PCV Mode、PC:cmH2O、PEEP:cmH2O、FiO2：__％使用（氧氣鼻導管__L/min；氧氣霧氣面罩__L/min、FiO2：__％；高流量氧氣鼻導管__L/min、FiO2：__％；T-piece__L/min、FiO2：__％），自咳能力欠佳，必要時給予抽痰及Ambu bagging，痰液量中呈黃白稠，左/右鼻__號（鼻胃管、PEG）固定於第__格(公分)，由口進食吞嚥__食慾__；禁食中；配合管灌配方__卡/天使用，聽診腸蠕動音正常，腹部觸叩診柔軟無脹氣，（左頸；右頸；左鼠蹊；右鼠蹊）__路中心靜脈導管/暫時性雙腔靜脈導管(Double lumen)/周邊靜脈中央導管(PICC)存，固定於__公分，入針處乾淨無紅腫滲液，CHG抗菌防水敷料覆蓋，連接點滴(Fenatnyl 1amp in N/S 40ml run 3ml/hr with pump；Norepinephrine 4mg/4ml/vial 4vial in D5W 250ml run 3ml/hr with pump；L/R 500ml/bot 和 Taita No.5 400ml/bag alt run 60ml/hr with pump；Precedex 1vial in N/S 48ml run 3ml/hr with pump；Dormicum 10 amp in N/S 40ml run 3ml/hr with pump；SmoFkabiven 1 bag run 60ml/hr with pump；B fluid 1bag run 60ml/hr with pump；PGE1 3vial in N/S 250ml run 20ml/hr with pump；Pantoloc 2vial in N/S 100ml run 10ml/hr with pump；Holdipine 2.5syrin in N/S 450ml run 20ml/hr with pump；Fresfol 3amp pure run 5ml/hr with syringe pump；Oliclinomel N4-550E 1.5L/bag 1.00Bag run 60ml/hr with pump)使用，__手（__足）__號靜脈留置針存，入針處乾淨無紅腫滲液，OP SITE覆蓋固定，連接點滴______使用，左/右手__號橈動脈動脈導管存，入針處乾淨無紅腫滲液，OP SITE覆蓋固定，連接pressure kit監測動脈血壓中，___(__Fr JP drain引流管存；Rubber drain 引流管存；香菸引流管(penrose)存；__腹造廔口存；左/右腦室腦室外引流管存；負壓傷口治療裝置(NPWT))，引流___液體，管路通暢無阻塞，左/右胸第__肋28Fr直管胸管存，固定於___公分處，連接胸腔引流瓶單/雙瓶使用及負壓抽吸引流15cm H2O使用，引流淡紅色液體中，液面可隨呼吸起伏，引流功能良好，左/右胸腹腔放液引流管(pigtail)存，固定於15公分處，連接小腿尿袋引流淡黃色液體中，管路通暢無阻塞，左/右腎經皮腎臟造廔(PCN)，連接小腿尿袋引流淡黃色液體中，管路通暢無阻塞，__號二路導尿管存，引流__色尿液，無明顯沉澱物，尿道口處無異常分泌物，尿布使用，身上傷口:腹部_X_公分術後傷口存，優碘消毒、生理食鹽水清潔，白紗、無菌治療巾覆蓋，束腹帶使用；__X__一級壓傷存，保護霜使用/優碘藥膏使用，棉墊覆蓋；肛門口 __X__公分二級失禁性皮膚炎存，幕之恬廊藥膏塗抹、散紗使用；採開放式護理；__X__公分外傷存，Biomycin藥膏塗抹，紗布覆蓋/採開放式護理，口腔黏膜濕潤，其餘皮膚完整無破損，因協助治療故與專責醫師___醫師討論後，依醫囑予保護性約束，雙手棒球手拍及棉質腕約使用，約束部位皮膚完整無破損，每2小時協助病人翻身拍背及抽痰，抬高床頭30度。護理措施:監測意識變化及四肢肌力/視情況給予抽痰，持續監測痰液性狀、執行胸腔物理治療/給予每兩小時翻身、協助身體照護、適當支托，避免壓瘡形成/確認兩側床欄正確拉上，預防病人跌倒/監視器使用中，密切監測心率變化，監測脈動變化/皮膚完整性、給予皮膚照護，定時執行傷口換藥。現搖高床頭30度，雙側床欄拉起，予以定期探視。因病人_/_血液培養:CRKP，故依醫囑採取接觸性隔離，進入病室前穿戴隔離衣、手套，確實執行手部清潔，避免感染擴散。" },
+        { time: "09:00", text: "管路評估", template: "記得確認型號、位置、fix公分數、日期貼" },
+        { time: "09:00", text: "傷口評估", template: "神經術後傷口不開，其餘術後傷口:管路貼、N/S棉枝、十片裝、無菌治療巾、束腹帶with燙紗\n壓傷:優膏、PAD\n失禁性皮膚炎:幕之恬廊藥膏塗抹、散紗使用" },
+        { time: "09:00", text: "疼痛評估 (CPOT)", template: "正常0分，一班一筆\nfentanyl CVID 要評1分，片語：依專責醫師葉雲凱/陳琬琳/林家瑋醫師醫囑予止痛藥物Fentanyl 1amp in N/S 40ml run 5ml/hr with pump 持續滴注中，續觀病人疼痛控制之情形。\n疼痛藥物給予，依重症疼痛評估(CPOT)評估為2分，故依專責醫師葉雲凱/陳琬琳/林家瑋醫師醫囑給予Morphine 10mg/amp 0.5amp IVD Q4HPRN使用，持續監測病人疼痛控制之情形。\n" },
+        { time: "09:00", text: "生命徵象 (V/S)", template: "補BT、BP、CPOT(0分)、ICDSC(有打鎮靜藥物才需要認真評RASS)" },
+        { time: "09:11", text: "護理計畫措施", template: "低效性呼吸/自主換氣障礙/呼吸道清除功能失效\nO：病人現__號氣管內管固定於__公分（__號氣切管），接呼吸器PCV Mode PC:cmH2O、PEEP:cmH2O、FiO2：__％使用（氧氣鼻導管__L/min；氧氣霧氣面罩__L/min、FiO2：__％；T-piece__L/min、FiO2：__％），觀察病人呼吸平順無費力之情形，無使用呼吸輔助肌，胸部起伏對稱，聽診呼吸音為雙側囉音，自咳能力欠佳，必要時給予抽痰及Ambu bagging，執行無菌技術抽痰，痰液量中呈黃白稠。\n\n潛在危險性心臟損傷/心輸出量減少\n病人生命徵象心跳__次/分、呼吸__次/分、血氧濃度__％、血壓____mmHg，肌力強度：左手_分、右手_分、左腳_分、右腳_分，雙手肱動脈_價、雙手橈動脈_價、雙腳足背動脈_價，四肢末梢血循溫暖無水腫。\n\n潛在危險性腦組織灌流失效\n病人生命徵象心跳__次/分、呼吸__次/分、血氧濃度__％、血壓____mmHg，意識程度E_V_M_，瞳孔大小/對光反射：左眼_mm/(＋；－；±)、右眼_mm/(＋；－；±)，肌力強度：左手_分、右手_分、左腳_分、右腳_分，班內無抽搐情形。\n\n體液容積缺失\n病人生命徵象心跳__次/分、呼吸__次/分、血氧濃度__％、血壓____mmHg，肌力強度：左手_分、右手_分、左腳_分、右腳_分，雙手肱動脈_價、雙手橈動脈_價、雙腳足背動脈_價，口腔黏膜（乾燥；濕潤），皮膚（完整；乾燥；溫暖；冰冷）\n\n急性疼痛\n觀察病人無皺眉、躁動等疼痛之警訊，依重症疼痛評估(CPOT)評估為__分，止痛藥物Fentanyl 1amp in N/S 40ml run 5ml/hr with pump 持續滴注中。\n\n皮膚完整性破損\nO：檢視身上傷口:腹部_X_公分術後傷口存，生理食鹽水清潔，白紗、無菌治療巾覆蓋，束腹帶使用；__X__一級壓傷存，保護霜使用/優碘藥膏使用，棉墊覆蓋；__X__公分外傷存，Biomycin藥膏塗抹，紗布覆蓋/採開放式護理，外觀皆乾淨無紅腫滲液。\n\n高風險壓傷/潛在危險性皮膚受損\nO：檢視病人易受壓處皮膚完整無破損，因協助治療故依醫囑予雙手棒球手拍及棉質腕約保護性約束使用中，約束部位皮膚完整無破損，協助每兩小時翻身擺位，並使用棉被四肢抬高，以減少受壓，並予抬高床頭及床尾，避免病人下滑，以減低和床單間的磨擦力及剪力，保持床單及被套平整。" },
+        { time: "10:00", text: "翻身 (左側臥)", template: "協助病人翻身及抽痰，核對管路位置及公分數，位置正確，協助更換乾淨尿布、布中單及床單，抬高床頭30度，雙側床欄拉起，現採左側臥" },
+        { time: "10:30", text: "醫師查房紀錄", template: "現專責/主治醫師XXX醫師查房，詢問病人，護理師回復，醫師表續觀，續監測生命徵象及意識變化，其餘續目前治療。" },
+        { time: "11:00", text: "會客紀錄", template: "現會客時間家屬(母親、妻子)前來探視病人，告知目前病人因放置氣管內管有給予止痛藥物，血壓目前正常，無須再給予升壓藥物，待周一主治醫師評估是否開刀及後續治療處置，家屬表瞭解可接受。" },
+        { time: "11:30", text: "灌奶、吃飯", template: "反抽鼻胃管緊(內有ml消化液)，確認位置正確，給予管灌牛奶ml，水ml，續觀病人消化情形，抬高床頭30度。\n\n現協助病人於床上坐起，自行由口進食軟食餐盤共520克，無嗆咳情形，雙側床欄持續使用，床架高度為最低，抬高床頭30度。" },
+        { time: "12:00", text: "翻身 (右側臥)", template: "協助病人翻身及抽痰，核對管路位置及公分數，位置正確，協助更換乾淨尿布、布中單及床單，抬高床頭30度，雙側床欄拉起，現採右側臥" },  
+        { time: "13:00", text: "生命徵象 (V/S)", template: "補BT、BP" },
+        { time: "13:11", text: "護理計畫評值", template: "低效性呼吸/自主換氣障礙/呼吸道清除功能失效\nＥ:病人現__號氣管內管固定於__公分（__號氣切管），接呼吸器PCV Mode PC:cmH2O、PEEP:cmH2O、FiO2：__％使用（氧氣鼻導管__L/min；氧氣霧氣面罩__L/min、FiO2：__％；T-piece__L/min、FiO2：__％；高流量氧氣鼻導管__L/min、FiO2：__％），觀察病人呼吸平順無費力之情形，無使用呼吸輔助肌，胸部起伏對稱，聽診呼吸音為雙側囉音，自咳能力欠佳，必要時給予抽痰及Ambu bagging，執行無菌技術抽痰，痰液量中呈黃白稠，持續監測病人呼吸型態、頻率及痰液性狀和顏色。\n\n潛在危險性心臟損傷/心輸出量減少\n病人生命徵象心跳__次/分、呼吸__次/分、血氧濃度__％、血壓____mmHg，肌力強度：左手__分、右手__分、左腳__分、右腳__分，雙手肱動脈__價、雙手橈動脈__價、雙腳足背動脈__價，四肢末梢血循溫暖無水腫，依醫囑給予Norepinephrine 4mg/4ml/vial 4vial in D5W 250ml run 3ml/hr with pump，續觀察病人生命徵象。\n\n潛在危險性腦組織灌流失效\n病人生命徵象心跳__次/分、呼吸__次/分、血氧濃度__％、血壓____mmHg，意識程度E_V_M_，瞳孔大小/對光反射：左眼_mm/(＋；－；±)、右眼_mm/(＋；－；±)，肌力強度：左手_分、右手_分、左腳_分、右腳_分，班內無抽搐情形，持續監測病人生命徵象及意識之情形。\n\n體液容積缺失\n病人生命徵象心跳__次/分、呼吸__次/分、血氧濃度__％、血壓____mmHg，肌力強度：左手_分、右手_分、左腳_分、右腳_分，雙手肱動脈_價、雙手橈動脈_價、雙腳足背動脈_價，口腔黏膜（乾燥；濕潤），皮膚（完整；乾燥；溫暖；冰冷），續觀察病人生命徵象。\n\n急性疼痛\n觀察病人無皺眉、躁動等疼痛之警訊，依重症疼痛評估(CPOT)評估為1分，給予翻身時保持動作輕柔及給予舒適臥位，減少燈光刺激及噪音干擾，續依醫囑給予止痛藥物Fentanyl 1amp in N/S 40ml run 5ml/hr with pump 使用，持續監測病人疼痛控制之情形。\n\n皮膚完整性破損\nO：檢視身上傷口:腹部_X_公分術後傷口存，生理食鹽水清潔，白紗、無菌治療巾覆蓋，束腹帶使用；__X__一級壓傷存，保護霜使用/優碘藥膏使用，棉墊覆蓋；_X__公分外傷存，Biomycin藥膏塗抹，紗布覆蓋/採開放式護理，外觀皆乾淨無紅腫滲液，續依醫囑給予每日傷口換藥，持續監測傷口周圍有無紅腫滲液等發炎感染之情形。\n\n高風險壓傷/潛在危險性皮膚受損\n檢視病人易受壓處皮膚完整無破損，續給予每兩小時翻身擺位，更換身體重心避免壓瘡產生，並使用棉被給予四肢適當支托，以減少其受壓，保持床單及被套平整，持續監測病人皮膚完整性。" },
+        { time: "14:00", text: "翻身 (左側臥)", template: "協助病人翻身及抽痰，核對管路位置及公分數，位置正確，協助更換乾淨尿布、布中單及床單，抬高床頭30度，雙側床欄拉起，現採左側臥" },
+        { time: "14:30", text: "I/O Record", template: "正負500內可接受" },
+        { time: "14:50", text: "特殊交班", template: "----------特殊交班----------\n----------檢查----------\n----------SIU----------" },
+        { time: "15:00", text: "灌奶 (NG feeding)", template: "反抽鼻胃管緊(內有ml消化液)，確認位置正確，給予管灌牛奶ml，水ml，續觀病人消化情形，抬高床頭30度。" },
+        { time: "15:30", text: "約束評估", template: "新增評估紀錄，0830再改翻身" },
+        { time: "15:35", text: "處置", template: "點選驚嘆號，選擇類別:處置，點到16:00" },
+    ];
+
+    // --- DOM 元素 ---
+    const routineContainer = document.getElementById('routineList');
+    const urgentContainer = document.getElementById('urgentList');
+    const completedContainer = document.getElementById('completedList');
+    const sopListContainer = document.getElementById('sopList');
+    const sidebar = document.getElementById('sidebar');
+
+    // --- 初始化 ---
+    function init() {
+        // 渲染常規任務
+        routineData.forEach(item => {
+            createTaskElement(item.time, item.text, item.template, routineContainer, 'routine');
+        });
+        // 渲染 SOP 列表
+        renderSopList();
+    }
+
+    // --- 核心功能：建立任務卡片 ---
+    function createTaskElement(time, text, templateContent, container, type) {
+        const card = document.createElement('div');
+        card.className = 'task-card';
+        
+        const header = document.createElement('div');
+        header.className = 'task-header';
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'task-checkbox';
+        checkbox.onclick = (e) => {
+            e.stopPropagation();
+            completeTask(card, time, text, textarea.value);
+        };
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'task-title';
+        contentDiv.innerHTML = `<span class="time-badge">${time}</span> ${text}`;
+        
+        const hint = document.createElement('div');
+        hint.className = 'expand-hint';
+        hint.innerText = templateContent !== null ? '▼ 紀錄' : '';
+
+        header.appendChild(checkbox);
+        header.appendChild(contentDiv);
+        header.appendChild(hint);
+
+        const body = document.createElement('div');
+        body.className = 'task-body';
+        const textarea = document.createElement('textarea');
+        textarea.className = 'record-input';
+        textarea.placeholder = "在此輸入護理紀錄...";
+        textarea.value = templateContent || ""; 
+        body.appendChild(textarea);
+
+        // 展開/收合
+        header.onclick = () => {
+            const isOpen = body.classList.contains('open');
+            body.classList.toggle('open');
+            hint.innerText = isOpen ? '▼ 紀錄' : '▲ 收合';
+        };
+
+        card.appendChild(header);
+        card.appendChild(body);
+        container.appendChild(card);
+    }
+
+    // --- 功能：新增緊急任務 ---
+    function addTask() {
+        const timeInput = document.getElementById('inputTime');
+        const textInput = document.getElementById('inputText');
+        const text = textInput.value.trim();
+
+        if (!text) return;
+
+        let time = timeInput.value.trim();
+        // 如果沒填時間，自動抓現在
+        if (!time) {
+            const now = new Date();
+            time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        }
+
+        createTaskElement(time, text, "處置過程：\n結果：", urgentContainer, 'urgent');
+        
+        textInput.value = '';
+        timeInput.value = ''; // 清空時間欄位，方便下次輸入
+        urgentContainer.scrollTop = urgentContainer.scrollHeight;
+    }
+
+    // --- 功能：完成任務 (移至側欄) ---
+    function completeTask(cardElement, time, text, note) {
+        cardElement.style.opacity = '0';
+        cardElement.style.transform = 'translateX(20px)';
+        
+        setTimeout(() => {
+            cardElement.remove();
+            
+            const historyItem = document.createElement('div');
+            historyItem.className = 'completed-item';
+            
+            let noteHtml = note && note.trim() !== "" 
+                ? `<div class="completed-note">${note}</div>` 
+                : "";
+
+            const now = new Date();
+            const dateStr = `${now.getMonth()+1}/${now.getDate()}`;
+
+            historyItem.innerHTML = `
+                <div class="completed-time">${dateStr} ${time} - 已完成</div>
+                <div style="font-weight:bold;">${text}</div>
+                ${noteHtml}
+            `;
+            
+            completedContainer.insertBefore(historyItem, completedContainer.firstChild);
+        }, 200);
+    }
+
+    // --- 側欄與分頁邏輯 ---
+    function toggleSidebar() {
+        sidebar.classList.toggle('active');
+    }
+
+    function switchTab(tabName) {
+        // 切換按鈕樣式
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        if(tabName === 'completed') document.querySelectorAll('.tab-btn')[0].classList.add('active');
+        if(tabName === 'sop') document.querySelectorAll('.tab-btn')[1].classList.add('active');
+
+        // 切換內容顯示
+        document.querySelectorAll('.sidebar-content').forEach(content => content.classList.remove('active'));
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+    }
+
+    // --- SOP 系統邏輯 ---
+    function renderSopList() {
+        sopListContainer.innerHTML = '';
+        for (const [key, data] of Object.entries(sopData)) {
+            const div = document.createElement('div');
+            div.className = 'sop-item';
+            div.innerHTML = `<span>${data.title}</span><span class="sop-arrow">›</span>`;
+            div.onclick = () => openModal(data);
+            sopListContainer.appendChild(div);
+        }
+    }
+
+    function openModal(data) {
+        const modal = document.getElementById('sopModal');
+        const title = document.getElementById('modalTitle');
+        const body = document.getElementById('modalBody');
+
+        title.innerText = data.title;
+        
+        // 構建 Modal 內容 HTML
+        let html = '';
+        
+        // 1. 物品
+        if (data.items && data.items.length > 0) {
+            html += `<div class="modal-section">
+                <h3>📦 準備物品</h3>
+                <ul class="modal-list">
+                    ${data.items.map(i => `<li>${i}</li>`).join('')}
+                </ul>
+            </div>`;
+        }
+
+        // 2. 流程
+        if (data.steps && data.steps.length > 0) {
+            html += `<div class="modal-section">
+                <h3>⚙️ 任務流程</h3>
+                <ol class="modal-list">
+                    ${data.steps.map(s => `<li>${s}</li>`).join('')}
+                </ol>
+            </div>`;
+        }
+
+        // 3. 注意事項
+        if (data.notes) {
+            html += `<div class="modal-section">
+                <h3>⚠️ 注意事項</h3>
+                <div style="white-space: pre-wrap; padding-left: 20px;">${data.notes}</div>
+            </div>`;
+        }
+
+        body.innerHTML = html;
+        modal.classList.add('active');
+    }
+
+    function closeModal(event) {
+        // 如果有點擊事件且點在內容區，則不關閉
+        if (event && event.target.closest('.modal-content')) return;
+        document.getElementById('sopModal').classList.remove('active');
+    }
+
+    // --- 輔助：鍵盤輸入 ---
+    function handleEnter(e) {
+        if (e.key === 'Enter') addTask();
+    }
+
+    // 啟動程式
+    init();
+
+</script>
+
+</body>
+</html>
